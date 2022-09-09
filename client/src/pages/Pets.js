@@ -5,45 +5,77 @@ import PetsList from '../components/PetsList';
 import NewPetModal from '../components/NewPetModal';
 import Loader from '../components/Loader';
 
-const ALL_PETS = gql`
-  query Pets {
-    pets {
-      type
+const PETS_FIELDS = gql`
+  fragment PetsFields on Pet {
+    id
+    name
+    type
+    img
+    vaccinated @client
+    owner {
       id
-      name
-      img
+      age @client
     }
   }
+`;
+
+const ALL_PETS = gql`
+  query AllPets {
+    pets {
+      ...PetsFields
+    }
+  }
+  ${PETS_FIELDS}
 `;
 
 const ADD_PET = gql`
   mutation AddPet($newPet: NewPetInput!) {
     addPet(input: $newPet) {
-      type
-      name
-      id
-      img
+      ...PetsFields
     }
   }
+  ${PETS_FIELDS}
 `;
 
 export default function Pets() {
   const [modal, setModal] = useState(false);
   const { loading, error, data } = useQuery(ALL_PETS);
-  const [createPet, newPet] = useMutation(ADD_PET);
+  const [createPet, newPet] = useMutation(ADD_PET, {
+    update(cache, { data: { addPet } }) {
+      const data = cache.readQuery({ query: ALL_PETS });
+      cache.writeQuery({
+        query: ALL_PETS,
+        data: { pets: [addPet, ...data.pets] }
+      });
+    }
+  });
 
   const onSubmit = (input) => {
     setModal(false);
-    createPet({ variables: { newPet: input } });
+    createPet({
+      variables: { newPet: input },
+      optimisticResponse: {
+        __typename: 'Mutation',
+        addPet: {
+          __typename: 'Pet',
+          id: Math.floor(Math.random() * 10000) + '',
+          name: input.name,
+          type: input.type,
+          img: 'https://via.placeholder.com/300'
+        }
+      }
+    });
   };
 
-  if (loading || newPet.loading) {
+  if (loading) {
     return <Loader />;
   }
 
   if (error || newPet.error) {
     return <p>error</p>;
   }
+
+  console.log(data.pets[0]);
 
   if (modal) {
     return <NewPetModal onSubmit={onSubmit} onCancel={() => setModal(false)} />;
